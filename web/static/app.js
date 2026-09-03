@@ -121,6 +121,7 @@
   const baseUrlInput = document.getElementById('base_url');
   const apiKeyInput = document.getElementById('api_key');
   const modelInput = document.getElementById('model');
+  const subKeyInput = document.getElementById('use_subscription_key');
   if (!baseUrlInput || !apiKeyInput) return;
 
   // Inject pill container right after the api_key field's hint.
@@ -140,7 +141,8 @@
     if (!baseUrl || !apiKey || apiKey.length < 8) return;
     if (!/^https?:\/\//.test(baseUrl)) return;
 
-    const key = baseUrl + '|' + apiKey.length + ':' + apiKey.slice(-4);
+    const useSubKey = !!(subKeyInput && subKeyInput.checked);
+    const key = baseUrl + '|' + apiKey.length + ':' + apiKey.slice(-4) + '|' + (useSubKey ? 'sub' : 'xak');
     if (key === lastKey) return; // already probed this combo
     lastKey = key;
 
@@ -152,6 +154,7 @@
     const fd = new FormData();
     fd.set('base_url', baseUrl);
     fd.set('api_key', apiKey);
+    if (useSubKey) fd.set('use_subscription_key', 'true');
     let r, data;
     try {
       r = await fetch('/api/probe', {method: 'POST', body: fd, signal: ctrl.signal});
@@ -275,6 +278,7 @@
             base_url: baseUrlInput.value.trim(),
             api_key: apiKeyInput.value.trim(),
             from: protocol,
+            use_subscription_key: !!(subKeyInput && subKeyInput.checked),
           }));
         } catch (_) { /* sessionStorage unavailable — page navigates anyway */ }
         location.href = protoPath[target];
@@ -295,6 +299,14 @@
     lastKey = null; // base changed → invalidate dedup
     runProbe();
   });
+  // Auth header toggle changes which header the probe sends — re-probe so
+  // the pill reflects the auth mode the actual detection will use.
+  if (subKeyInput) {
+    subKeyInput.addEventListener('change', () => {
+      lastKey = null;
+      runProbe();
+    });
+  }
 
   // Cross-protocol handoff: if we landed here from another protocol page,
   // pre-fill the form and immediately probe. Single-shot — clear after read
@@ -307,6 +319,7 @@
       if (data && data.base_url && data.api_key) {
         baseUrlInput.value = data.base_url;
         apiKeyInput.value = data.api_key;
+        if (subKeyInput) subKeyInput.checked = !!data.use_subscription_key;
         const fromLabel = {anthropic: 'Claude', openai: 'OpenAI', gemini: 'Gemini'}[data.from] || data.from;
         setPill('neutral', '🔄 已从 ' + fromLabel + ' 页面带入凭据,正在重新探测...');
         // Defer so the page paints first

@@ -20,7 +20,7 @@
 ### 1.3 MVP 范围
 - 仅支持 **Claude 系列模型**（Opus 4.7 / Sonnet 4.6 / Haiku 4.5 优先；legacy 模型详见附录 B）
 - 仅支持 **Anthropic Messages API 协议**（`POST /v1/messages`），不支持 Bedrock Converse / Vertex AI 协议变体
-- 假设 base_url 接受 Anthropic header（`x-api-key` + `anthropic-version: 2023-06-01`）
+- 假设 base_url 接受 Anthropic header（`x-api-key` + `anthropic-version: 2023-06-01`）；对 Azure API Management 等以订阅密钥鉴权的网关，可切换为 `Ocp-Apim-Subscription-Key`（二选一，见 §4.4）
 - 提供 **三档运行模式**（quick / standard / full，详见 §6.1），默认 quick 模式 ~15s/$0.05
 - 输出形式：CLI + JSON 报告
 
@@ -588,14 +588,21 @@ class PassiveDetector(BaseDetector):
 
 ```python
 class AnthropicClient:
-    def __init__(self, base_url: str, api_key: str, timeout: float = 30.0):
+    def __init__(self, base_url: str, api_key: str, timeout: float = 30.0,
+                 use_subscription_key: bool = False):
+        # 认证头二选一：默认 x-api-key；use_subscription_key=True 时
+        # 改用 Ocp-Apim-Subscription-Key（Azure APIM 等网关），两者互斥
+        headers = {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        if use_subscription_key:
+            headers["Ocp-Apim-Subscription-Key"] = api_key
+        else:
+            headers["x-api-key"] = api_key
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
+            headers=headers,
             timeout=timeout,
         )
 
@@ -922,6 +929,7 @@ $ relay-detector ... --no-cache
 | Flag | 默认 | 说明 |
 |---|---|---|
 | `--mode` | `quick` | `quick` / `standard` / `full`，见 §6.1 |
+| `--subscription-key` / `--x-api-key` | `--x-api-key` | 认证头二选一（见 §4.4）；仅 anthropic 协议，环境变量 `ANTHROPIC_USE_SUBSCRIPTION_KEY` |
 | `--max-concurrent` | `3` | 并发请求数上限 |
 | `--strict-signature` | off | 是否做 thinking signature 端到端验签（付费） |
 | `--no-cache` | off | 跳过短期结果缓存 |

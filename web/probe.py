@@ -53,23 +53,33 @@ def _classify(model_id: str) -> str | None:
     return None
 
 
-# (base_url, api_key_hash) -> (timestamp, response_dict)
-_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+# (base_url, api_key_hash, use_subscription_key) -> (timestamp, response_dict)
+_CACHE: dict[tuple[str, str, bool], tuple[float, dict[str, Any]]] = {}
 
 
-def _cache_key(base_url: str, api_key: str) -> tuple[str, str]:
+def _cache_key(
+    base_url: str, api_key: str, use_subscription_key: bool = False
+) -> tuple[str, str, bool]:
     h = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
-    return (base_url.rstrip("/").lower(), h)
+    return (base_url.rstrip("/").lower(), h, use_subscription_key)
 
 
-async def probe_relay(base_url: str, api_key: str) -> dict[str, Any]:
+async def probe_relay(
+    base_url: str, api_key: str, use_subscription_key: bool = False
+) -> dict[str, Any]:
     """Probe a relay's /models endpoint. Always returns a structured dict.
 
     Never raises — network and protocol errors are returned as ``ok=false``
     with a human-readable ``error`` field so the frontend can render them
     inline next to the api_key field.
+
+    ``use_subscription_key``: authenticate with the non-standard
+    ``Ocp-Apim-Subscription-Key`` header instead of ``x-api-key`` (Azure
+    APIM-fronted relays). The Bearer header is still sent alongside — the
+    /models probe is protocol-agnostic and Bearer is the OpenAI/Gemini-compat
+    convention that most relays accept.
     """
-    key = _cache_key(base_url, api_key)
+    key = _cache_key(base_url, api_key, use_subscription_key)
     now = time.monotonic()
     cached = _CACHE.get(key)
     if cached and now - cached[0] < CACHE_TTL_S:
@@ -82,10 +92,13 @@ async def probe_relay(base_url: str, api_key: str) -> dict[str, Any]:
         # uses x-api-key, but most relays accept either; we send both to
         # maximize hit rate without leaking either to non-relay servers.
         "authorization": f"Bearer {api_key}",
-        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
+    if use_subscription_key:
+        headers["Ocp-Apim-Subscription-Key"] = api_key
+    else:
+        headers["x-api-key"] = api_key
 
     out: dict[str, Any]
     try:
@@ -356,8 +369,10 @@ def _excerpt(text: str, n: int = 160) -> str:
 
 
 # Synchronous wrapper for tests; never called from the async route.
-def probe_relay_sync(base_url: str, api_key: str) -> dict[str, Any]:
-    return asyncio.run(probe_relay(base_url, api_key))
+def probe_relay_sync(
+    base_url: str, api_key: str, use_subscription_key: bool = False
+) -> dict[str, Any]:
+    return asyncio.run(probe_relay(base_url, api_key, use_subscription_key))
 
 
 def clear_cache() -> None:
@@ -388,6 +403,7 @@ async def probe_model_alive(
     api_key: str,
     model: str,
     protocol: str,
+    use_subscription_key: bool = False,
 ) -> tuple[bool, str | None]:
     """Return ``(alive, error_text_or_None)``.
 
@@ -395,6 +411,11 @@ async def probe_model_alive(
     the upstream message (truncated). ``alive=True`` means a 2xx with at
     least a recognisable response envelope. The caller decides whether to
     block submission or just warn.
+
+    ``use_subscription_key`` (anthropic only): authenticate with the
+    non-standard ``Ocp-Apim-Subscription-Key`` header instead of
+    ``x-api-key`` so preflight matches the auth mode the actual detection
+    job will use.
 
     Lazy-import the protocol client to keep web/probe protocol-agnostic at
     module load time and to avoid pulling Anthropic deps into Gemini-only
@@ -419,7 +440,10 @@ async def probe_model_alive(
                 )
         elif protocol == "anthropic":
             from relay_detector.protocols.anthropic import make_client
-            async with make_client(base_url, api_key, timeout=PREFLIGHT_TIMEOUT_S) as c:
+            async with make_client(
+                base_url, api_key, timeout=PREFLIGHT_TIMEOUT_S,
+                use_subscription_key=use_subscription_key,
+            ) as c:
                 _req, _resp, _h, _lat = await c.messages_create(
                     model=model,
                     max_tokens=4,

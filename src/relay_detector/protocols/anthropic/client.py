@@ -30,6 +30,11 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504, 529}
 MAX_BACKOFF_S = 30.0
 MAX_RETRIES = 4
 
+# Non-standard auth header used by Azure API Management gateways in front of
+# Anthropic-compatible relays. Mutually exclusive with `x-api-key` — see
+# AnthropicClient(use_subscription_key=...).
+SUBSCRIPTION_KEY_HEADER = "Ocp-Apim-Subscription-Key"
+
 # Per-model parameter deprecations: when the model alias starts with the key,
 # the listed body fields are stripped before sending. Anthropic occasionally
 # deprecates parameters silently in newer models — Opus 4.7/4.8 reject requests
@@ -90,14 +95,23 @@ class AnthropicClient:
         timeout: float = DEFAULT_TIMEOUT,
         anthropic_version: str = ANTHROPIC_VERSION,
         extra_headers: dict[str, str] | None = None,
+        use_subscription_key: bool = False,
     ):
         self.base_url = _normalize_base_url(base_url)
         self.api_key = api_key
+        self.use_subscription_key = use_subscription_key
         headers = {
-            "x-api-key": api_key,
             "anthropic-version": anthropic_version,
             "content-type": "application/json",
         }
+        # Either/or auth: Azure APIM-fronted relays authenticate with the
+        # non-standard Ocp-Apim-Subscription-Key header instead of x-api-key.
+        # Send exactly one of the two so gateways that reject unknown auth
+        # headers don't see a conflicting pair.
+        if use_subscription_key:
+            headers[SUBSCRIPTION_KEY_HEADER] = api_key
+        else:
+            headers["x-api-key"] = api_key
         if extra_headers:
             headers.update(extra_headers)
         self._client = httpx.AsyncClient(

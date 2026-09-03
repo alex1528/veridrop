@@ -252,6 +252,7 @@ relay-detector detect [OPTIONS]
 | `--model` | `claude-haiku-4-5` | 测试目标模型 |
 | `--mode` | `standard` | `quick` / `standard` / `full` |
 | `--protocol` | 自动 | `anthropic` / `openai` / `gemini` |
+| `--subscription-key` / `--x-api-key` | `--x-api-key` | 认证头二选一:`--subscription-key` 用 `Ocp-Apim-Subscription-Key`(Azure APIM 等网关),默认 `x-api-key`;仅 anthropic 协议,环境变量 `ANTHROPIC_USE_SUBSCRIPTION_KEY` |
 | `--max-concurrent` | `3` | 并发请求数 |
 | `--timeout` | `30` | 单请求超时秒数 |
 | `--output` `-o` | stdout | JSON 报告输出路径 |
@@ -271,6 +272,8 @@ relay-detector ping --model claude-haiku-4-5
 ```
 
 打印响应字段 + usage + latency,适合快速验证 base_url / api_key 能不能用。
+网关用订阅密钥鉴权时加 `--subscription-key`(或设 `ANTHROPIC_USE_SUBSCRIPTION_KEY=true`),
+认证头会从 `x-api-key` 切换为 `Ocp-Apim-Subscription-Key`。
 
 ---
 

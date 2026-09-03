@@ -11,6 +11,10 @@ Live demo: <https://veridrop.org> · 中转站检测频道:
 ## [Unreleased]
 
 ### Added
+- **Anthropic 协议支持 `Ocp-Apim-Subscription-Key` 认证头**(与 `x-api-key` 二选一,默认 `x-api-key`) — 适配 Azure API Management 等以订阅密钥鉴权的网关,全栈贯通:
+  - 客户端:`AnthropicClient` / `make_client` 新增 `use_subscription_key` 参数
+  - CLI:`ping` / `detect` 新增 `--subscription-key/--x-api-key` 选项(环境变量 `ANTHROPIC_USE_SUBSCRIPTION_KEY`),非 anthropic 协议使用时报错退出
+  - Web:`/api/probe` 与 `/api/detect/claude` 接收 `use_subscription_key` 表单字段,探测缓存键区分两种认证模式;首页表单新增勾选项
 - Caddy structured access logs(JSON 格式,含 Cf-Connecting-Ip / Referer / User-Agent)
 - 用户画像分析工具 `scripts/analyze_access_log.py` — 把访问者按行为分群
   (比价决策买家 / 疑似中转站运营者 / 自测开发者 / 看了测试页未提交 / 浅浏览 / 一次性跳出 / 爬虫)

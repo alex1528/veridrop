@@ -6,7 +6,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -93,6 +93,15 @@ def ping(
         help="Model ID to test.",
     ),
     timeout: float = typer.Option(30.0, "--timeout", help="Request timeout in seconds."),
+    use_subscription_key: bool = typer.Option(
+        False,
+        "--subscription-key/--x-api-key",
+        envvar="ANTHROPIC_USE_SUBSCRIPTION_KEY",
+        help=(
+            "Authenticate with the non-standard Ocp-Apim-Subscription-Key "
+            "header instead of x-api-key (Azure APIM-fronted relays)."
+        ),
+    ),
 ) -> None:
     """Send one minimal /v1/messages request to verify connectivity & response shape.
 
@@ -106,19 +115,24 @@ def ping(
         console.print("[red]error:[/red] --api-key or ANTHROPIC_API_KEY is required")
         raise typer.Exit(2)
 
-    asyncio.run(_run_ping(base_url, api_key, model, timeout))
+    asyncio.run(_run_ping(base_url, api_key, model, timeout, use_subscription_key))
 
 
 async def _run_ping(
-    base_url: str, api_key: str, model: str, timeout: float
+    base_url: str, api_key: str, model: str, timeout: float,
+    use_subscription_key: bool = False,
 ) -> None:
     masked = mask_api_key(api_key)
     console.print(
         f"[bold]Pinging[/bold] base_url=[cyan]{base_url}[/cyan] "
         f"model=[cyan]{model}[/cyan] key=[dim]{masked}[/dim]"
+        + (" auth=[cyan]Ocp-Apim-Subscription-Key[/cyan]" if use_subscription_key else "")
     )
 
-    async with AnthropicClient(base_url, api_key, timeout=timeout) as client:
+    async with AnthropicClient(
+        base_url, api_key, timeout=timeout,
+        use_subscription_key=use_subscription_key,
+    ) as client:
         try:
             req, resp, headers, latency_ms = await client.messages_create(
                 model=model,
@@ -240,9 +254,26 @@ def detect(
             "--long-context (it's a superset). Off by default."
         ),
     ),
+    use_subscription_key: bool = typer.Option(
+        False,
+        "--subscription-key/--x-api-key",
+        envvar="ANTHROPIC_USE_SUBSCRIPTION_KEY",
+        help=(
+            "Anthropic protocol only: authenticate with the non-standard "
+            "Ocp-Apim-Subscription-Key header instead of x-api-key "
+            "(Azure APIM-fronted relays)."
+        ),
+    ),
 ) -> None:
     """Run a multi-detector quality check against a relay station."""
     proto = _resolve_protocol(protocol, model)
+
+    if use_subscription_key and proto != Protocol.ANTHROPIC:
+        console.print(
+            "[red]error:[/red] --subscription-key is only supported for "
+            "the anthropic protocol"
+        )
+        raise typer.Exit(2)
 
     # Per-protocol envvar fallback so users can keep distinct keys for
     # each provider in the same .env without juggling them on the CLI.
@@ -281,7 +312,7 @@ def detect(
     elif include_long_context:
         config.overall_timeout_s = max(config.overall_timeout_s, 300.0)
 
-    asyncio.run(_run_detect(proto, base_url, api_key, model, config, output))
+    asyncio.run(_run_detect(proto, base_url, api_key, model, config, output, use_subscription_key))
 
 
 _DEFAULT_BASE_URLS = {
@@ -353,6 +384,7 @@ async def _run_detect(
     model: str,
     config: ExecutionConfig,
     output_path: Optional[Path],
+    use_subscription_key: bool = False,
 ) -> None:
     masked = mask_api_key(api_key)
     console.print(
@@ -360,6 +392,10 @@ async def _run_detect(
         f"base_url=[cyan]{base_url}[/cyan] "
         f"model=[cyan]{model}[/cyan] mode=[cyan]{config.mode.value}[/cyan] "
         f"key=[dim]{masked}[/dim]"
+        + (
+            " auth=[cyan]Ocp-Apim-Subscription-Key[/cyan]"
+            if use_subscription_key else ""
+        )
     )
 
     # Per-protocol module gives us build_detectors / build_runner / make_client
@@ -387,9 +423,11 @@ async def _run_detect(
 
     detectors = build_detectors(config.mode)
 
-    async with make_client(
-        base_url, api_key, timeout=config.request_timeout_s
-    ) as client:
+    client_kwargs: dict[str, Any] = {"timeout": config.request_timeout_s}
+    if protocol == Protocol.ANTHROPIC:
+        client_kwargs["use_subscription_key"] = use_subscription_key
+
+    async with make_client(base_url, api_key, **client_kwargs) as client:
         runner = build_runner(client, detectors, config)
         outcome = await runner.run(model)
 

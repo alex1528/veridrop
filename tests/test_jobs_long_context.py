@@ -32,10 +32,10 @@ class _CapturedOutcome:
         self.performance = None
 
 
-async def _capture_cfg(cfg_holder: list, *args):
+async def _capture_cfg(cfg_holder: list, *args, **kwargs):
     """Drop-in for _run_anthropic/_run_openai/_run_gemini that captures the
     passed-in ExecutionConfig and returns a minimal valid outcome shape."""
-    # signature: (base_url, api_key, model, cfg)
+    # signature: (base_url, api_key, model, cfg[, use_subscription_key=...])
     cfg_holder.append(args[3])
     return _CapturedOutcome()
 
@@ -47,8 +47,8 @@ async def test_long_context_flag_default_false(
     """Default submission (no opt-in) sets include_long_context=False."""
     captured: list[ExecutionConfig] = []
 
-    async def fake_anthropic(*args):
-        return await _capture_cfg(captured, *args)
+    async def fake_anthropic(*args, **kwargs):
+        return await _capture_cfg(captured, *args, **kwargs)
 
     monkeypatch.setattr(jobs, "_run_anthropic", fake_anthropic)
     # Avoid file I/O for the report write step

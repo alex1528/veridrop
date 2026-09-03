@@ -91,6 +91,18 @@
       <p class="hint">全程 HTTPS 传输,仅用于本次检测,不写日志、不持久化、检测完即丢弃。</p>
     </div>
 
+    <div class="field-checkbox">
+      <input type="checkbox" id="use_subscription_key" name="use_subscription_key" value="true" />
+      <label for="use_subscription_key">
+        <strong>使用 Ocp-Apim-Subscription-Key 认证头</strong>
+        <span class="checkbox-hint">
+          部分中转站(常见于 Azure API 管理网关)要求用非标准的
+          <code>Ocp-Apim-Subscription-Key</code> 请求头代替 <code>x-api-key</code> 传密钥。
+          勾选后本次检测改用该头(二选一,默认 <code>x-api-key</code>)。
+        </span>
+      </label>
+    </div>
+
     <div class="field-row">
       <div class="field">
         <label for="model">目标模型</label>

@@ -56,8 +56,16 @@ def build_detectors(mode: Mode | None = None) -> list[BaseDetector]:
     return build_all()
 
 
-def make_client(base_url: str, api_key: str, timeout: float) -> AnthropicClient:
-    return AnthropicClient(base_url, api_key, timeout=timeout)
+def make_client(
+    base_url: str,
+    api_key: str,
+    timeout: float,
+    use_subscription_key: bool = False,
+) -> AnthropicClient:
+    return AnthropicClient(
+        base_url, api_key, timeout=timeout,
+        use_subscription_key=use_subscription_key,
+    )
 
 
 def build_runner(

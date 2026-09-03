@@ -283,6 +283,7 @@ async def _preflight_or_422(
     api_key: str,
     model: str,
     protocol: str,
+    use_subscription_key: bool = False,
 ) -> None:
     """Run model-alive preflight; raise HTTPException 422 with structured
     detail if the model is dead so the frontend can offer a one-click swap
@@ -306,7 +307,10 @@ async def _preflight_or_422(
         # skip the early-warning path until backoff expires.
         return
 
-    alive, err = await probe_model_alive(base_url, api_key, model, protocol)
+    alive, err = await probe_model_alive(
+        base_url, api_key, model, protocol,
+        use_subscription_key=use_subscription_key,
+    )
     if alive:
         return
 
@@ -330,6 +334,7 @@ async def api_probe(
     request: Request,
     base_url: str = Form(...),
     api_key: str = Form(...),
+    use_subscription_key: bool = Form(False),
 ) -> JSONResponse:
     """Probe a relay's /v1/models for the form's pre-submit pill.
 
@@ -370,7 +375,7 @@ async def api_probe(
             status_code=200,
         )
 
-    payload = await probe_relay(base_url, api_key)
+    payload = await probe_relay(base_url, api_key, use_subscription_key)
     return JSONResponse(payload)
 
 
@@ -385,6 +390,7 @@ async def api_detect_claude(
     mode: str = Form("full"),
     include_long_context: bool = Form(False),
     include_long_context_extreme: bool = Form(False),
+    use_subscription_key: bool = Form(False),
 ) -> JSONResponse:
     base_url = base_url.strip()
     api_key = api_key.strip()
@@ -429,12 +435,16 @@ async def api_detect_claude(
             detail="这是 OpenAI 模型,请在 /openai 页面提交检测。",
         )
 
-    await _preflight_or_422(request, base_url, api_key, model, "anthropic")
+    await _preflight_or_422(
+        request, base_url, api_key, model, "anthropic",
+        use_subscription_key=use_subscription_key,
+    )
     job_id = await jobs.submit(
         base_url, api_key, model, mode,
         protocol="anthropic",
         include_long_context=include_long_context,
         include_long_context_extreme=include_long_context_extreme,
+        use_subscription_key=use_subscription_key,
     )
     # NOTE: never echo api_key back in the response
     return JSONResponse({"job_id": job_id, "status_url": f"/api/status/{job_id}"})

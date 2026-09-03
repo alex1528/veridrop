@@ -162,6 +162,32 @@ async def test_probe_happy_path_classifies_all_buckets(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_probe_subscription_key_mode_sends_ocp_header(monkeypatch):
+    """use_subscription_key=True swaps x-api-key for Ocp-Apim-Subscription-Key
+    on the /models probe (either/or), Bearer still present."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["xkey"] = request.headers.get("x-api-key")
+        captured["ocp"] = request.headers.get("Ocp-Apim-Subscription-Key")
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"data": [{"id": "claude-haiku-4-5"}]})
+
+    _patch_async_client(monkeypatch, _mock(handler))
+    clear_cache()
+    out = await probe_relay(
+        "https://relay.example.com/v1", "sk-test-key",
+        use_subscription_key=True,
+    )
+    clear_cache()
+
+    assert out["ok"] is True
+    assert captured["ocp"] == "sk-test-key"
+    assert captured["xkey"] is None  # either/or — x-api-key must be absent
+    assert captured["auth"] == "Bearer sk-test-key"
+
+
+@pytest.mark.asyncio
 async def test_probe_official_anthropic_models_includes_required_version(monkeypatch):
     captured: dict = {}
 

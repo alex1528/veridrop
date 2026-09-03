@@ -84,6 +84,7 @@ async def submit(
     protocol: str = "anthropic",
     include_long_context: bool = False,
     include_long_context_extreme: bool = False,
+    use_subscription_key: bool = False,
 ) -> str:
     """Queue a detection job and return the job id immediately.
 
@@ -95,6 +96,10 @@ async def submit(
         models). $0.05–$8 cost, 30s–5min wall time. Catches "advertised X
         but capped at Y<X" fraud that the standard tier misses on big
         models. Implies standard (it's a superset).
+
+    ``use_subscription_key`` (anthropic only): authenticate with the
+    non-standard ``Ocp-Apim-Subscription-Key`` header instead of
+    ``x-api-key`` — required by Azure APIM-fronted relays.
     """
     job_id = _new_job_id()
     job = Job(
@@ -110,6 +115,7 @@ async def submit(
         _run(
             job_id, base_url, api_key, model, mode, protocol,
             include_long_context, include_long_context_extreme,
+            use_subscription_key,
         )
     )
     return job_id
@@ -175,6 +181,7 @@ async def _run(
     protocol: str,
     include_long_context: bool = False,
     include_long_context_extreme: bool = False,
+    use_subscription_key: bool = False,
 ) -> None:
     async with _SEMA:
         async with _LOCK:
@@ -220,7 +227,10 @@ async def _run(
                     "它不提供加密级模型真伪证明。"
                 )
             elif protocol == "anthropic":
-                outcome = await _run_anthropic(base_url, api_key, model, cfg)
+                outcome = await _run_anthropic(
+                    base_url, api_key, model, cfg,
+                    use_subscription_key=use_subscription_key,
+                )
                 report_protocol = Protocol.ANTHROPIC
                 report_tier = DetectionTier.CRYPTOGRAPHIC
                 tier_title = "加密级验证"
@@ -294,6 +304,7 @@ async def _run_anthropic(
     api_key: str,
     model: str,
     cfg: ExecutionConfig,
+    use_subscription_key: bool = False,
 ):
     from relay_detector.protocols.anthropic import (
         build_detectors,
@@ -301,7 +312,10 @@ async def _run_anthropic(
         make_client,
     )
 
-    async with make_client(base_url, api_key, timeout=cfg.request_timeout_s) as client:
+    async with make_client(
+        base_url, api_key, timeout=cfg.request_timeout_s,
+        use_subscription_key=use_subscription_key,
+    ) as client:
         runner = build_runner(client, build_detectors(cfg.mode), cfg)
         return await runner.run(model)
 

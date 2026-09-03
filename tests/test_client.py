@@ -26,6 +26,80 @@ def test_normalize_base_url_accepts_trailing_v1():
 
 
 @pytest.mark.asyncio
+async def test_default_auth_uses_x_api_key_only():
+    """Default auth mode sends x-api-key and NOT Ocp-Apim-Subscription-Key."""
+    sample = {
+        "id": "msg_x", "type": "message", "role": "assistant",
+        "model": "claude-haiku-4-5", "content": [],
+        "stop_reason": "end_turn", "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    seen_headers: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers.append(request.headers)
+        return httpx.Response(200, json=sample)
+
+    async with respx.mock(base_url=BASE_URL) as router:
+        router.post("/v1/messages").mock(side_effect=handler)
+        async with AnthropicClient(BASE_URL, "sk-test") as client:
+            await client.messages_create(
+                model="claude-haiku-4-5",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "x"}],
+            )
+    assert len(seen_headers) == 1
+    h = seen_headers[0]
+    assert h.get("x-api-key") == "sk-test"
+    assert "ocp-apim-subscription-key" not in h
+
+
+@pytest.mark.asyncio
+async def test_subscription_key_auth_sends_ocp_header_only():
+    """use_subscription_key=True sends Ocp-Apim-Subscription-Key instead of
+    x-api-key (either/or — Azure APIM gateways reject conflicting auth)."""
+    sample = {
+        "id": "msg_x", "type": "message", "role": "assistant",
+        "model": "claude-haiku-4-5", "content": [],
+        "stop_reason": "end_turn", "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    seen_headers: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers.append(request.headers)
+        return httpx.Response(200, json=sample)
+
+    async with respx.mock(base_url=BASE_URL) as router:
+        router.post("/v1/messages").mock(side_effect=handler)
+        async with AnthropicClient(
+            BASE_URL, "sk-test", use_subscription_key=True
+        ) as client:
+            await client.messages_create(
+                model="claude-haiku-4-5",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "x"}],
+            )
+    assert len(seen_headers) == 1
+    h = seen_headers[0]
+    assert h.get("ocp-apim-subscription-key") == "sk-test"
+    assert "x-api-key" not in h
+    # anthropic-version must still be present in both modes
+    assert h.get("anthropic-version") == "2023-06-01"
+
+
+def test_make_client_passes_subscription_key_flag():
+    """The protocol factory must forward use_subscription_key to the client."""
+    from relay_detector.protocols.anthropic import make_client
+
+    default = make_client(BASE_URL, "sk-test", timeout=5.0)
+    assert default.use_subscription_key is False
+
+    sub = make_client(BASE_URL, "sk-test", timeout=5.0, use_subscription_key=True)
+    assert sub.use_subscription_key is True
+
+
+@pytest.mark.asyncio
 async def test_messages_create_strips_temperature_for_opus_4_7():
     """Opus 4.7 rejects `temperature` (deprecated). Client must strip it."""
     sample = {
